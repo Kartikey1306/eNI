@@ -15,7 +15,13 @@ jobs:
   eosim-validation:
     strategy:
       matrix:
-        os: [ubuntu-22.04, windows-2022, macos-13]
+        # macos-latest, not macos-13: no runner is ever assigned to macos-13,
+        # so those three legs sat queued for the full 24-hour limit and were
+        # then auto-cancelled, six nights running. `cancelled` is not
+        # `failure`, so the workflow never reported a verdict either way.
+        # simulation-test.yml in this repo already uses macos-latest and its
+        # macOS leg completes in about 15 seconds.
+        os: [ubuntu-22.04, windows-2022, macos-latest]
         python: ['3.10', '3.11', '3.12']
     runs-on: ${{ matrix.os }}
     steps:
