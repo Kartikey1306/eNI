@@ -32,7 +32,7 @@ static void test_format_detect(void)
     uint8_t eni_magic[4] = {'E','N','I','1'};
     assert(eni_data_format_detect(eni_magic, 4) == ENI_FORMAT_ENI);
 
-    assert(eni_data_format_detect((uint8_t*)"????", 4) == ENI_FORMAT_UNKNOWN);
+    assert(eni_data_format_detect((const uint8_t*)"????", 4) == ENI_FORMAT_UNKNOWN);
     PASS();
 }
 

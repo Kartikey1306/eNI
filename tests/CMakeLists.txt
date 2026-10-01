@@ -3,6 +3,12 @@
 set(CMAKE_C_CPPCHECK "")
 set(CMAKE_C_CLANG_TIDY "")
 
+# Tests put side-effecting calls inside assert() (e.g. assert(init(...) == ENI_OK));
+# -DNDEBUG from Release flags compiled them out, so keep asserts live in every build type.
+foreach(cfg RELEASE RELWITHDEBINFO MINSIZEREL)
+    string(REGEX REPLACE "(^| )[-/]DNDEBUG( |$)" " " CMAKE_C_FLAGS_${cfg} "${CMAKE_C_FLAGS_${cfg}}")
+endforeach()
+
 add_executable(eni_test_common test_common.c)
 target_link_libraries(eni_test_common PRIVATE eni_common)
 add_test(NAME eni_common_tests COMMAND eni_test_common)
