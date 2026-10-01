@@ -110,6 +110,7 @@ eni_status_t eni_fw_service_tick(eni_fw_service_t *svc)
         if (st == ENI_OK) {
             /* Route and classify */
             eni_route_priority_t pri = eni_fw_router_classify(&svc->router, &bus_ev);
+            eni_status_t action_st = ENI_OK;
 
             /* Dispatch intent events through orchestrator */
             if (bus_ev.type == ENI_EVENT_INTENT &&
@@ -124,7 +125,12 @@ eni_status_t eni_fw_service_tick(eni_fw_service_t *svc)
 
                 eni_status_t dispatch_st = eni_fw_orchestrator_dispatch(
                     &svc->orchestrator, &bus_ev, &call, &result);
-                if (dispatch_st != ENI_OK) {
+                action_st = dispatch_st;
+                if (dispatch_st == ENI_OK) {
+                    eni_fw_observability_record_exec(&svc->observability, result.latency_ms);
+                } else if (dispatch_st == ENI_ERR_POLICY_DENIED) {
+                    eni_fw_observability_record_denied(&svc->observability);
+                } else {
                     ENI_LOG_WARN("fw.service", "orchestrator dispatch failed for '%s'",
                                  bus_ev.payload.intent.name);
                 }
@@ -137,7 +143,7 @@ eni_status_t eni_fw_service_tick(eni_fw_service_t *svc)
             if (bus_ev.type == ENI_EVENT_INTENT) {
                 eni_fw_observability_audit(&svc->observability,
                                            bus_ev.payload.intent.name,
-                                           bus_ev.source, ENI_OK);
+                                           bus_ev.source, action_st);
             }
         }
     }

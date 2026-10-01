@@ -103,6 +103,7 @@ eni_status_t eni_min_service_tick(eni_min_service_t *svc)
                 &svc->decoder, &svc->signal_processor.last_features, &decoded_ev);
             if (dec_st == ENI_OK) {
                 svc->events_decoded++;
+                decoded_ev.timestamp = norm_ev.timestamp;
                 norm_ev = decoded_ev;
             }
 #endif
@@ -145,8 +146,9 @@ eni_status_t eni_min_service_tick(eni_min_service_t *svc)
     /* Feedback: evaluate intent against rules */
     if (norm_ev.type == ENI_EVENT_INTENT) {
         eni_event_t fb_ev;
+        uint64_t now_ms = norm_ev.timestamp.sec * 1000u + norm_ev.timestamp.nsec / 1000000u;
         eni_status_t fb_st = eni_min_feedback_evaluate(
-            &svc->feedback, &norm_ev, &fb_ev, 0);
+            &svc->feedback, &norm_ev, &fb_ev, now_ms);
         if (fb_st == ENI_OK) svc->events_stimulated++;
     }
 #endif
