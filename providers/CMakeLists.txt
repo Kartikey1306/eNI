@@ -12,7 +12,11 @@ if(ENI_PROVIDER_SIMULATOR)
     list(APPEND PROVIDER_INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/simulator)
 endif()
 
-if(ENI_PROVIDER_GENERIC)
+# The generic provider is a TCP-socket client (<sys/socket.h>). Bare-metal
+# targets (CMAKE_SYSTEM_NAME=Generic, e.g. ARM Cortex-M via
+# cmake/toolchain-arm-cortex-m4.cmake) have no sockets, so it is excluded
+# there; the provider simply isn't registered on those targets.
+if(ENI_PROVIDER_GENERIC AND NOT CMAKE_SYSTEM_NAME STREQUAL "Generic")
     list(APPEND PROVIDER_SOURCES generic/generic.c)
     list(APPEND PROVIDER_INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/generic)
 endif()
