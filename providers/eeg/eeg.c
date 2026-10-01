@@ -199,7 +199,8 @@ static eni_status_t eeg_prov_poll(eni_provider_t *prov, eni_event_t *ev) {
     ev->type = ENI_EVENT_RAW;
     ev->timestamp.sec = pkt.timestamp_us / 1000000;
     ev->timestamp.nsec = (uint32_t)((pkt.timestamp_us % 1000000) * 1000);
-    return ENI_OK;
+    return eni_event_set_raw(ev, (const uint8_t *)pkt.channel_data,
+                             pkt.channel_count * sizeof(float));
 }
 
 static eni_status_t eeg_prov_start(eni_provider_t *prov) { (void)prov; return ENI_OK; }

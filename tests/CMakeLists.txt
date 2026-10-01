@@ -402,3 +402,86 @@ if(ENI_BUILD_SESSION)
         TIMEOUT 120
     )
 endif()
+
+# ============================================================
+# CLI end-to-end: neural intent -> tool -> simulated effector
+# ============================================================
+
+if(ENI_BUILD_CLI)
+    function(eni_add_cli_test name)
+        cmake_parse_arguments(T "" "ARGS;EXPECT_EXIT;REQUIRE;FORBID;POSITIVE" "" ${ARGN})
+        set(cmd ${CMAKE_COMMAND} "-DENI_CLI=$<TARGET_FILE:eni>"
+                "-DCLI_ARGS=${T_ARGS}" "-DEXPECT_EXIT=${T_EXPECT_EXIT}")
+        foreach(k REQUIRE FORBID POSITIVE)
+            if(DEFINED T_${k})
+                list(APPEND cmd "-D${k}=${T_${k}}")
+            endif()
+        endforeach()
+        list(APPEND cmd -P ${CMAKE_CURRENT_SOURCE_DIR}/integration/cli_check.cmake)
+        add_test(NAME ${name} COMMAND ${cmd})
+        set_tests_properties(${name} PROPERTIES LABELS "integration")
+    endfunction()
+
+    set(ENI_CLI_NO_RUN "ENI-(Min|Framework) running")
+
+    eni_add_cli_test(eni_cli_run_fw_executes_tools
+        ARGS "run-fw" EXPECT_EXIT zero
+        REQUIRE "\\[effector\\] #1 [a-z.]+ via move_left -> cursor=\\(40,50\\)"
+        FORBID "tool not found|dispatch failed"
+        POSITIVE "\\[orchestrator\\] executed=([0-9]+)")
+    eni_add_cli_test(eni_cli_run_fw_metrics_count_executions
+        ARGS "run-fw" EXPECT_EXIT zero
+        POSITIVE "\\[metrics\\] ingested=[0-9]+ routed=[0-9]+ executed=([0-9]+)")
+    eni_add_cli_test(eni_cli_run_min_executes_tools
+        ARGS "run-min" EXPECT_EXIT zero
+        REQUIRE "\\[effector\\] final cursor=\\([0-9]+,[0-9]+\\)"
+        FORBID "tool not found|no mapping"
+        POSITIVE "\\[eni-min\\] state=running processed=[0-9]+ filtered=[0-9]+ executed=([0-9]+)")
+    # The simulator's first intent (tick 3) has confidence 0.75 < min_confidence 0.80.
+    eni_add_cli_test(eni_cli_run_min_5_ticks_below_threshold
+        ARGS "run-min 5" EXPECT_EXIT zero
+        REQUIRE "processed=1 filtered=1 executed=0")
+
+    eni_add_cli_test(eni_cli_rejects_unknown_option
+        ARGS "run-min --bogus" EXPECT_EXIT nonzero
+        REQUIRE "unknown option: --bogus" FORBID "${ENI_CLI_NO_RUN}")
+    eni_add_cli_test(eni_cli_run_min_rejects_model
+        ARGS "run-min --model=model.bin" EXPECT_EXIT nonzero
+        REQUIRE "run-min does not support --model" FORBID "${ENI_CLI_NO_RUN}")
+    eni_add_cli_test(eni_cli_run_min_rejects_decoder_without_eeg
+        ARGS "run-min --decoder=energy" EXPECT_EXIT nonzero
+        REQUIRE "run-min does not support --decoder" FORBID "${ENI_CLI_NO_RUN}")
+    eni_add_cli_test(eni_cli_run_fw_rejects_eeg
+        ARGS "run-fw --eeg" EXPECT_EXIT nonzero
+        REQUIRE "run-fw does not support --eeg" FORBID "${ENI_CLI_NO_RUN}")
+    eni_add_cli_test(eni_cli_run_fw_rejects_decoder
+        ARGS "run-fw --decoder=nn" EXPECT_EXIT nonzero
+        REQUIRE "run-fw does not support --decoder" FORBID "${ENI_CLI_NO_RUN}")
+    eni_add_cli_test(eni_cli_run_fw_rejects_model
+        ARGS "run-fw --model=model.bin" EXPECT_EXIT nonzero
+        REQUIRE "run-fw does not support --model" FORBID "${ENI_CLI_NO_RUN}")
+
+    if(ENI_PROVIDER_EEG AND ENI_BUILD_DSP AND ENI_BUILD_DECODER)
+        foreach(dec energy nn)
+            eni_add_cli_test(eni_cli_run_min_eeg_${dec}
+                ARGS "run-min --eeg --decoder=${dec}" EXPECT_EXIT zero
+                REQUIRE "executed=[1-9][0-9]*"
+                FORBID "tool not found|no mapping"
+                POSITIVE "\\[decoder\\] type=${dec} decoded=([0-9]+)")
+        endforeach()
+        eni_add_cli_test(eni_cli_run_min_rejects_unknown_decoder
+            ARGS "run-min --eeg --decoder=bogus" EXPECT_EXIT nonzero
+            REQUIRE "unknown decoder 'bogus'" FORBID "${ENI_CLI_NO_RUN}")
+    endif()
+
+    if(ENI_BUILD_STIMULATOR AND ENI_PROVIDER_STIMULATOR_SIM)
+        eni_add_cli_test(eni_cli_run_min_feedback
+            ARGS "run-min --feedback" EXPECT_EXIT zero
+            REQUIRE "stimulate: type=haptic"
+            POSITIVE "\\[feedback\\] stimulations=([0-9]+)")
+        eni_add_cli_test(eni_cli_run_fw_feedback
+            ARGS "run-fw --feedback" EXPECT_EXIT zero
+            REQUIRE "stimulate: type=haptic"
+            POSITIVE "\\[feedback\\] evaluations=[0-9]+ delivered=([0-9]+)")
+    endif()
+endif()
