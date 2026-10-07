@@ -1,12 +1,16 @@
 [run]
 branch = True
 source = .
+# coverage 7 matches '*' within one path component, so '*tests*' never
+# matched '<root>/tests/unit/x.py' and the test files were counted as
+# covered code. Each pattern now names the directory it means.
 omit =
-    *tests*
-    *setup.py
-    *.github*
-    *venv*
-    *virtualenv*
+    */tests/*
+    */setup.py
+    */.github/*
+    */venv/*
+    */.venv/*
+    */virtualenv/*
 
 [report]
 show_missing = True
@@ -15,4 +19,7 @@ precision = 2
 # (measured 52.21% on 2026-10-01) and kept the Python Tests job red.
 # Keep this at-or-below the measured total and raise it as coverage
 # grows; the long-term goal remains 100%. See eNI#37.
-fail_under = 50
+# Raised 50 -> 70 on 2026-10-07 with the omit fix above: measured 71.66%
+# with test files excluded (89.29% had counted the tests themselves);
+# headroom for Python 3.11 in CI.
+fail_under = 70
