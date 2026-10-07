@@ -9,7 +9,9 @@ import unittest
 
 from tools.quantize_model import (
     dequantize_weights,
+    main,
     quantize_weights,
+    read_eni_model,
     write_eni_model,
 )
 
@@ -104,6 +106,128 @@ class TestWriteEniModel(unittest.TestCase):
                                   layers[0]["scale"], layers[0]["zero_point"])
         for w, b in zip(orig, back):
             self.assertLess(abs(w - b), layers[0]["scale"] * 2)
+
+
+class TestReadEniModel(unittest.TestCase):
+    def _layers(self):
+        return [
+            {"name": "dense_0", "input_size": 4, "output_size": 2,
+             "activation": 1, "weights": [0.1, 0.2, 0.3, 0.4,
+                                          0.5, 0.6, 0.7, 0.8]},
+        ]
+
+    def test_roundtrip_float(self):
+        import tempfile, os
+        layers = self._layers()
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "m.eni_model")
+            write_eni_model(p, layers, quantized=False)
+            back = read_eni_model(p)
+        self.assertEqual(back["version"], 1)
+        self.assertEqual(len(back["layers"]), 1)
+        self.assertEqual(back["layers"][0]["name"], "dense_0")
+        for w, b in zip(layers[0]["weights"], back["layers"][0]["weights"]):
+            self.assertAlmostEqual(w, b, places=6)
+
+    def test_rejects_bad_magic(self):
+        import tempfile, os
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "bad.eni_model")
+            with open(p, "wb") as f:
+                f.write(b"\x00" * 64)
+            with self.assertRaises(ValueError):
+                read_eni_model(p)
+
+    def test_rejects_truncated(self):
+        import tempfile, os
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "short.eni_model")
+            with open(p, "wb") as f:
+                f.write(struct.pack("<II", 0x454E4931, 1))
+            with self.assertRaises(ValueError):
+                read_eni_model(p)
+
+
+class TestMainFailClosed(unittest.TestCase):
+    """eNI#40: the tool must quantize its input or refuse — never emit a
+    placeholder while reporting success. All offline, fixture-based."""
+
+    def _write_float_model(self, path, weights):
+        write_eni_model(path, [{"name": "dense_0", "input_size": 4,
+                                "output_size": 2, "activation": 1,
+                                "weights": weights}], quantized=False)
+
+    def test_refuses_missing_input(self):
+        import tempfile, os
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "o.q")
+            with self.assertRaises(SystemExit) as cm:
+                main(["-i", os.path.join(d, "nope.eni_model"), "-o", out])
+            self.assertNotEqual(cm.exception.code, 0)
+            self.assertFalse(os.path.exists(out))
+
+    def test_refuses_zero_weight_model(self):
+        import tempfile, os
+        with tempfile.TemporaryDirectory() as d:
+            inp = os.path.join(d, "z.eni_model")
+            out = os.path.join(d, "o.q")
+            self._write_float_model(inp, [0.0] * 8)
+            with self.assertRaises(SystemExit) as cm:
+                main(["-i", inp, "-o", out])
+            self.assertNotEqual(cm.exception.code, 0)
+            self.assertFalse(os.path.exists(out))
+
+    def test_refuses_onnx_without_runtime_quantizer(self):
+        import tempfile, os
+        with tempfile.TemporaryDirectory() as d:
+            inp = os.path.join(d, "m.onnx")
+            out = os.path.join(d, "o.q")
+            with open(inp, "wb") as f:
+                f.write(b"not a real onnx file")
+            with self.assertRaises(SystemExit) as cm:
+                main(["-i", inp, "-o", out])
+            self.assertNotEqual(cm.exception.code, 0)
+            self.assertFalse(os.path.exists(out))
+
+    def test_refuses_corrupt_model(self):
+        import tempfile, os
+        with tempfile.TemporaryDirectory() as d:
+            inp = os.path.join(d, "bad.eni_model")
+            out = os.path.join(d, "o.q")
+            with open(inp, "wb") as f:
+                f.write(b"\x01\x02\x03")
+            with self.assertRaises(SystemExit) as cm:
+                main(["-i", inp, "-o", out])
+            self.assertNotEqual(cm.exception.code, 0)
+            self.assertFalse(os.path.exists(out))
+
+    def test_quantizes_real_input(self):
+        import tempfile, os
+        weights = [0.1, -0.5, 0.9, -0.05, 0.33, 1.5, -1.2, 0.01]
+        with tempfile.TemporaryDirectory() as d:
+            inp = os.path.join(d, "m.eni_model")
+            out = os.path.join(d, "m.q")
+            self._write_float_model(inp, weights)
+            main(["-i", inp, "-o", out])  # must not raise
+            self.assertTrue(os.path.exists(out))
+            back = read_eni_model(out)
+            self.assertEqual(back["version"], 2)
+            layer = back["layers"][0]
+            # output actually encodes the input: not placeholder-shaped
+            self.assertTrue(any(w != 0 for w in layer["weights"]))
+            deq = dequantize_weights(layer["weights"], layer["scale"],
+                                     layer["zero_point"])
+            for w, b in zip(weights, deq):
+                self.assertLess(abs(w - b), layer["scale"])
+
+    def test_info_does_not_write_output(self):
+        import tempfile, os
+        with tempfile.TemporaryDirectory() as d:
+            inp = os.path.join(d, "m.eni_model")
+            out = os.path.join(d, "o.q")
+            self._write_float_model(inp, [0.5] * 8)
+            main(["-i", inp, "-o", out, "--info"])  # must not raise
+            self.assertFalse(os.path.exists(out))
 
 
 if __name__ == "__main__":
